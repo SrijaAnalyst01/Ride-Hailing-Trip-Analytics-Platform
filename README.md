@@ -1,10 +1,5 @@
 # Ride-Hailing Trip Analytics Platform (Lakeflow Spark Declarative Pipelines)
 
-![Databricks](https://shields.io)
-![Unity Catalog](https://shields.io)
-![SQL](https://shields.io)
-![BI](https://shields.io)
-
 ## 1. Executive Summary
 A city ride-hailing company operating across eight Indian cities exports its completed trip records to a monthly CSV file (`ride_trips_raw.csv`). Previously, reporting was done manually in Excel, leading to slow turnaround times and errors caused by duplicate rows, inconsistent capitalization, leading/trailing spaces, missing fields, and invalid distances or rates.
 
@@ -138,7 +133,37 @@ The published dashboard connects exclusively to the five `gold_*` tables and inc
 
 ---
 
-## 8. Key Engineering Takeaways
-* **Immutability in Bronze:** Keeping raw files untouched with ingestion metadata (`source_file`, `loaded_at`) ensures full auditability and allows bug fixes in downstream Silver transformations without re-requesting source exports.
-* **Quarantine Over Silent Deletion:** Routing corrupt rows to `silver_trips_rejected` with explicit `reject_reason` labels prevents KPI distortion while giving upstream engineering teams actionable feedback.
-* **Gold-Only BI Serving:** Restricting dashboards to pre-aggregated Gold tables eliminates the risk of business users accidentally querying uncleaned data and guarantees fast dashboard load times.
+## 8. Key Engineering Takeaways & Design Decisions
+* **Immutability in Bronze (`bronze_ride_trips`):** Keeping raw CSV records untouched with ingestion metadata (`source_file` and `loaded_at`) ensures full auditability. If a bug is discovered in cleaning rules later, the pipeline can be re-run without asking the source system to re-export the file.
+* **Quarantine Over Silent Deletion (`silver_trips_rejected`):** Instead of silently dropping corrupt rows (`distance_km <= 0` or `rate_per_km < 0`), isolating them in a rejected table with a clear `reject_reason` keeps Gold revenue metrics accurate while giving engineering teams an audit trail to fix upstream app bugs.
+* **Smart Text & Null Handling:**
+  * Applying `TRIM()` before `INITCAP()` cleans leading spaces so `" mumbai"` becomes `"Mumbai"`, while skipping `INITCAP()` on `payment_method` keeps acronyms like `"UPI"` uppercase instead of turning them into `"Upi"`.
+  * Leaving blank `customer_rating` values as `NULL` instead of `0` prevents artificial distortion of average driver ratings, since SQL's `AVG()` automatically skips `NULL`s.
+* **End-to-End Reconciliation (`gold_data_quality`):** Proving that `1,214 Bronze rows = 1,168 Clean + 22 Rejected + 24 Duplicates` mathematically guarantees that zero rows were lost during transformation.
+* **Gold-Only BI Serving:** Restricting the Databricks AI/BI dashboard strictly to pre-aggregated Gold tables prevents business users from accidentally querying uncleaned data and ensures fast dashboard performance.
+
+## 9. Project Review Q&A
+
+**1. Why do we keep the raw data in Bronze instead of cleaning the file directly?**
+* Keeping an untouched copy of the raw data in Bronze with ingestion metadata (`source_file` and `loaded_at`) creates an immutable audit trail. If a bug is discovered in our Silver cleaning logic later, we can fix the SQL rule and re-run the pipeline without needing the source system to re-export the file.
+
+**2. What is the difference between removing a trip and putting it in the rejected table?**
+* Removing a trip deletes it without a trace, making it impossible to know why data went missing. Routing invalid rows (`distance_km <= 0` or `rate_per_km < 0`) to `silver_trips_rejected` with a `reject_reason` keeps Gold revenue numbers accurate while giving engineering teams visibility to fix upstream app bugs.
+
+**3. Why can `trip_id` find duplicates while `customer_id` cannot?**
+* `trip_id` represents one unique completed ride, so any repeated `trip_id` is a true duplicate record. In contrast, `customer_id` repeats naturally whenever the same customer books multiple rides over time.
+
+**4. Why do we use `TRIM` before `INITCAP`, and why not on `payment_method`?**
+* Leading spaces confuse `INITCAP` if not removed first—running `TRIM` first turns `" mumbai"` into `"mumbai"`, allowing `INITCAP` to cleanly produce `"Mumbai"`. We skip `INITCAP` on `payment_method` because it would turn uppercase acronyms like `"UPI"` into `"Upi"`.
+
+**5. Why do we leave a blank rating as `NULL` instead of replacing it with `0`?**
+* Replacing a missing rating with `0` would falsely count it as a terrible trip and artificially drag down average driver and vehicle ratings. SQL's `AVG()` function automatically ignores `NULL` values, keeping rating averages accurate.
+
+**6. How does the reconciliation check prove that no row was lost?**
+* Every input row entering Bronze (`1,214` rows) must end up in one of three exact buckets: valid rows in `silver_trips_clean` (`1,168`), invalid rows quarantined in `silver_trips_rejected` (`22`), or exact duplicate rows removed (`24`). Confirming `1,214 = 1,168 + 22 + 24` proves 100% row-level accounting.
+
+**7. Which vehicle type earns the most, and which has the best rating?**
+* *(Check `gold_vehicle_summary` or Page 2 of your dashboard and insert your exact values here—for example: **Sedan / Premium** generated the highest net revenue, while **Premium / Sedan** achieved the highest average customer rating.)*
+
+**8. Which dashboard tool did you choose, and why?**
+* I chose **Databricks AI/BI Dashboards** because it connects natively to Unity Catalog Gold tables with zero external connectors, supports built-in Genie natural-language visualization generation, and keeps the entire pipeline and reporting workflow inside one unified platform.
