@@ -70,27 +70,7 @@ This project implements an automated, one-click **Databricks Medallion Architect
 
 ---
 
-## 5. Repository Structure
-
-```text
-ride-hailing-analytics-platform/
-├── README.md                     # Project documentation and setup guide
-├── sql/
-│   ├── 01_setup_storage.sql      # Catalog, schema, and Unity Catalog Volume creation
-│   └── my_transformation.sql     # Complete Lakeflow Pipeline (Bronze, Silver, Gold)
-├── data/
-│   └── ride_trips_raw.csv        # Synthetic raw trip dataset (1,214 rows, 20 columns)
-└── screenshots/
-    ├── pipeline_graph.png        # Lakeflow DAG execution graph
-    ├── gold_data_quality.png     # Reconciliation verification output
-    ├── dashboard_page1_overview.png
-    ├── dashboard_page2_vehicles_payments.png
-    └── dashboard_page3_data_quality.png
-```
-
----
-
-## 6. Setup & Execution Guide
+## 5. Setup & Execution Guide
 
 ### Step 1: Create Unity Catalog Storage
 Run the following commands in a Databricks SQL Editor to provision storage:
@@ -124,16 +104,22 @@ SELECT * FROM mobility_catalog.trips.gold_data_quality;
 
 ---
 
-## 7. Dashboard Overview (Databricks AI/BI)
+## 6. Dashboard Overview (Databricks AI/BI)
 The published dashboard connects exclusively to the five `gold_*` tables and includes interactive filters for **Month**, **Region**, and **Vehicle Type**:
 
 1. **Page 1 — Overview:** Executive KPIs (Total Trips, Net Revenue, Total Distance, Platform Earnings), monthly net revenue trend line, net revenue by city, and trips by vehicle type.
+   <img width="1127" height="568" alt="image" src="https://github.com/user-attachments/assets/bc49826d-777d-4a34-8237-5d4cab59528f" />
+
 2. **Page 2 — Vehicles & Payments:** Trip volume and net revenue by vehicle type, average customer rating by vehicle type, payment method breakdown, and total pending payment amount.
+   <img width="1120" height="549" alt="image" src="https://github.com/user-attachments/assets/00493a32-f1eb-445e-b95b-ebf565cd6e5b" />
+
 3. **Page 3 — Data Quality:** Reconciliation KPI cards (`1,214` Bronze vs. `1,168` Clean), pass/fail status indicator, and a breakdown chart of every data anomaly detected in the raw file.
+   <img width="1112" height="537" alt="image" src="https://github.com/user-attachments/assets/5694ed4d-57f5-457d-9e69-e7164045706a" />
+
 
 ---
 
-## 8. Key Engineering Takeaways & Design Decisions
+## 7. Key Engineering Takeaways & Design Decisions
 * **Immutability in Bronze (`bronze_ride_trips`):** Keeping raw CSV records untouched with ingestion metadata (`source_file` and `loaded_at`) ensures full auditability. If a bug is discovered in cleaning rules later, the pipeline can be re-run without asking the source system to re-export the file.
 * **Quarantine Over Silent Deletion (`silver_trips_rejected`):** Instead of silently dropping corrupt rows (`distance_km <= 0` or `rate_per_km < 0`), isolating them in a rejected table with a clear `reject_reason` keeps Gold revenue metrics accurate while giving engineering teams an audit trail to fix upstream app bugs.
 * **Smart Text & Null Handling:**
@@ -142,7 +128,7 @@ The published dashboard connects exclusively to the five `gold_*` tables and inc
 * **End-to-End Reconciliation (`gold_data_quality`):** Proving that `1,214 Bronze rows = 1,168 Clean + 22 Rejected + 24 Duplicates` mathematically guarantees that zero rows were lost during transformation.
 * **Gold-Only BI Serving:** Restricting the Databricks AI/BI dashboard strictly to pre-aggregated Gold tables prevents business users from accidentally querying uncleaned data and ensures fast dashboard performance.
 
-## 9. Project Review Q&A
+## 8. Project Review Q&A
 
 **1. Why do we keep the raw data in Bronze instead of cleaning the file directly?**
 * Keeping an untouched copy of the raw data in Bronze with ingestion metadata (`source_file` and `loaded_at`) creates an immutable audit trail. If a bug is discovered in our Silver cleaning logic later, we can fix the SQL rule and re-run the pipeline without needing the source system to re-export the file.
